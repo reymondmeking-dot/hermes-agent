@@ -16,8 +16,8 @@ import {
   IconBrain as Brain,
   IconBug as Bug,
   IconCheck as Check,
-  IconCircleCheck as CheckCircle2,
   IconCheck as CheckIcon,
+  IconCircleCheck as CheckCircle2,
   IconChevronDown as ChevronDown,
   IconChevronDown as ChevronDownIcon,
   IconChevronLeft as ChevronLeft,
@@ -39,6 +39,7 @@ import {
   IconEye as Eye,
   IconEyeOff as EyeOff,
   IconPhoto as FileImage,
+  IconPhoto as ImageIcon,
   IconFileText as FileText,
   IconFolderOpen as FolderOpen,
   IconGitBranch as GitBranch,
@@ -46,7 +47,6 @@ import {
   IconGlobe as Globe,
   IconHash as Hash,
   IconHelpCircle as HelpCircle,
-  IconPhoto as ImageIcon,
   IconInfoCircle as Info,
   IconKey as KeyRound,
   IconLayersIntersect2 as Layers3,
@@ -112,6 +112,7 @@ import {
   IconBolt as Zap,
   IconBoltFilled as ZapFilled,
   IconZoomIn as ZoomIn,
+  IconKeyboard as Keyboard,
   IconZoomOut as ZoomOut
 } from '@tabler/icons-react'
 
@@ -165,6 +166,7 @@ export {
   HelpCircle,
   ImageIcon,
   Info,
+  Keyboard,
   KeyRound,
   Layers3,
   LayoutDashboard,

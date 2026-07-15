@@ -1,12 +1,12 @@
 import { useStore } from '@nanostores/react'
-import { Dialog as DialogPrimitive } from 'radix-ui'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Kbd, KbdCombo } from '@/components/ui/kbd'
 import { useContributions } from '@/contrib/react/use-contributions'
+import { SearchField } from '@/components/ui/search-field'
+import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import {
   allKeybindActions,
@@ -22,26 +22,26 @@ import { arraysEqual } from '@/lib/storage'
 import {
   $bindings,
   $capture,
-  $keybindPanelOpen,
   beginCapture,
   bindingsFor,
-  closeKeybindPanel,
   conflictsFor,
   endCapture,
   resetAllBindings,
   resetBinding
 } from '@/store/keybinds'
 
-// The full hotkey map. Quiet popover, click a row's chip to rebind.
-export function KeybindPanel() {
+import { SettingsContent } from './primitives'
+
+
+export function KeybindSettings() {
   const { t } = useI18n()
-  const open = useStore($keybindPanelOpen)
   const bindings = useStore($bindings)
   const k = t.keybinds
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   // Subscribe so contributed actions appear/disappear live in the map.
   useContributions(KEYBINDS_AREA)
   const actionList = allKeybindActions()
+  const [query, setQuery] = useState('')
 
   const openCombo = bindings[KEYBIND_PANEL_ACTION]?.[0]
 
@@ -58,61 +58,115 @@ export function KeybindPanel() {
       return next
     })
 
+  // Filter actions and readonly shortcuts by label match against the query.
+  // When searching, categories auto-expand (collapsed state is ignored).
+  const isSearching = query.trim().length > 0
+
+  const filteredActions = useMemo(() => {
+    if (!isSearching) {
+      return null
+    }
+
+    const lower = query.toLowerCase()
+
+    return KEYBIND_ACTIONS.filter(action => {
+      if (action.id === KEYBIND_PANEL_ACTION) {
+        return false
+      }
+
+      const label = k.actions[action.id] ?? action.id
+
+      return label.toLowerCase().includes(lower) || action.id.includes(lower)
+    })
+  }, [isSearching, query, k.actions])
+
+  const filteredReadonly = useMemo(() => {
+    if (!isSearching) {
+      return null
+    }
+
+    const lower = query.toLowerCase()
+
+    return KEYBIND_READONLY.filter(shortcut => {
+      const label = k.actions[shortcut.id] ?? shortcut.id
+
+      return label.toLowerCase().includes(lower) || shortcut.id.includes(lower)
+    })
+  }, [isSearching, query, k.actions])
+
   return (
-    <DialogPrimitive.Root onOpenChange={next => !next && closeKeybindPanel()} open={open}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[200] bg-black/25 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content
-          aria-describedby={undefined}
-          className="fixed left-1/2 top-[9vh] z-[210] flex max-h-[82vh] w-[min(38rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous duration-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+    <SettingsContent>
+      <div className="flex items-center justify-between gap-3 pb-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">{k.title}</h2>
+          <p className="mt-0.5 text-[0.72rem] text-muted-foreground">
+            {k.subtitle(openCombo ? formatCombo(openCombo) : '')}
+          </p>
+        </div>
+        <button
+          className="flex shrink-0 items-center gap-1 rounded-md text-[0.72rem] text-muted-foreground hover:text-foreground"
+          onClick={resetAllBindings}
+          type="button"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between gap-3 border-b border-(--ui-stroke-tertiary) px-4 py-3">
-            <div className="min-w-0">
-              <DialogPrimitive.Title className="text-sm font-semibold text-foreground">{k.title}</DialogPrimitive.Title>
-              <DialogPrimitive.Description className="mt-0.5 text-[0.72rem] text-muted-foreground">
-                {k.subtitle(openCombo ? formatCombo(openCombo) : '')}
-              </DialogPrimitive.Description>
-            </div>
-            <HeaderButton icon="discard" label={k.resetAll} onClick={resetAllBindings} />
-          </div>
+          <Codicon name="discard" size="0.8125rem" />
+          {k.resetAll}
+        </button>
+      </div>
 
-          {/* Body */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
-            {KEYBIND_CATEGORIES.map(category => {
-              const actions = actionList.filter(
-                action => action.category === category && action.id !== KEYBIND_PANEL_ACTION
-              )
+      <div className="pb-3">
+        <SearchField
+          aria-label={k.search}
+          containerClassName="w-full"
+          onChange={setQuery}
+          placeholder={k.search}
+          value={query}
+        />
+      </div>
 
-              const readonly = KEYBIND_READONLY.filter(shortcut => shortcut.category === category)
+      {isSearching ? (
+        <div className="px-2 py-1.5">
+          {filteredActions?.length === 0 && filteredReadonly?.length === 0 ? (
+            <p className="px-2.5 py-4 text-center text-[0.82rem] text-muted-foreground">—</p>
+          ) : (
+            <>
+              {filteredActions?.map(action => <KeybindRow action={action} key={action.id} />)}
+              {filteredReadonly?.map(shortcut => <ReadonlyRow key={shortcut.id} shortcut={shortcut} />)}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="px-2 py-1.5">
+          {KEYBIND_CATEGORIES.map(category => {
+            const actions = actionList.filter(
+              action => action.category === category && action.id !== KEYBIND_PANEL_ACTION
+            )
 
-              if (actions.length === 0 && readonly.length === 0) {
-                return null
-              }
+            const readonly = KEYBIND_READONLY.filter(shortcut => shortcut.category === category)
 
-              const sectionOpen = !collapsed.has(category)
+            if (actions.length === 0 && readonly.length === 0) {
+              return null
+            }
 
-              return (
-                <section key={category}>
-                  <CategoryHeader
-                    label={k.categories[category] ?? category}
-                    onToggle={() => toggleCategory(category)}
-                    open={sectionOpen}
-                  />
-                  {sectionOpen && actions.map(action => <KeybindRow action={action} key={action.id} />)}
-                  {sectionOpen && readonly.map(shortcut => <ReadonlyRow key={shortcut.id} shortcut={shortcut} />)}
-                </section>
-              )
-            })}
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+            const sectionOpen = !collapsed.has(category)
+
+            return (
+              <section key={category}>
+                <CategoryHeader
+                  label={k.categories[category] ?? category}
+                  onToggle={() => toggleCategory(category)}
+                  open={sectionOpen}
+                />
+                {sectionOpen && actions.map(action => <KeybindRow action={action} key={action.id} />)}
+                {sectionOpen && readonly.map(shortcut => <ReadonlyRow key={shortcut.id} shortcut={shortcut} />)}
+              </section>
+            )
+          })}
+        </div>
+      )}
+    </SettingsContent>
   )
 }
 
-// Collapsible category header — chevron fades in on hover, rotates when open
-// (matches the sessions sidebar section pattern).
 function CategoryHeader({ label, onToggle, open }: { label: string; onToggle: () => void; open: boolean }) {
   return (
     <button
@@ -127,15 +181,6 @@ function CategoryHeader({ label, onToggle, open }: { label: string; onToggle: ()
         size="0.6875rem"
       />
     </button>
-  )
-}
-
-function HeaderButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <Button className="shrink-0 text-[0.72rem]" onClick={onClick} size="xs" variant="text">
-      <Codicon name={icon} size="0.8125rem" />
-      {label}
-    </Button>
   )
 }
 
@@ -168,11 +213,11 @@ function KeybindRow({ action }: { action: KeybindActionMeta }) {
       )}
 
       {/* Click the caps to rebind — the on-screen editor does the same thing. */}
+      <Tip label={k.rebind}>
       <button
         aria-label={k.rebind}
         className="flex shrink-0 items-center gap-1 rounded-lg outline-none"
         onClick={() => (capturing ? endCapture() : beginCapture(action.id))}
-        title={k.rebind}
         type="button"
       >
         {capturing ? (
@@ -183,21 +228,23 @@ function KeybindRow({ action }: { action: KeybindActionMeta }) {
           <Kbd variant="ghost">{k.set}</Kbd>
         )}
       </button>
+      </Tip>
 
       {/* Reset only shows once a binding diverges from its default; the spacer
           holds the column otherwise so rows stay aligned. */}
       {isDefault ? (
         <span aria-hidden className="size-6 shrink-0" />
       ) : (
+        <Tip label={k.reset}>
         <button
           aria-label={k.reset}
           className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 opacity-0 transition-all hover:bg-(--ui-control-active-background) hover:text-foreground group-hover:opacity-100"
           onClick={() => resetBinding(action.id)}
-          title={k.reset}
           type="button"
         >
           <Codicon name="discard" size="0.8125rem" />
         </button>
+        </Tip>
       )}
     </div>
   )
