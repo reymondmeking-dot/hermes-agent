@@ -194,8 +194,11 @@ def _pid_alive_matches(pid: int, create_time: Optional[float], *, strict: bool =
     try:
         proc = psutil.Process(int(pid))
         if strict:
+            # On Windows the psutil status probe holds the GIL and can stall every
+            # thread. Windows has no POSIX zombies, so skip the read there (#142085).
             return (create_time is not None and proc.create_time() == create_time
-                    and proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE)
+                    and proc.is_running()
+                    and (os.name == "nt" or proc.status() != psutil.STATUS_ZOMBIE))
         # A zombie keeps its create_time until its parent reaps it, but it is already dead: the
         # dashboard stop check (``gateway.status._pid_exists``) books it stopped, so the ledger must
         # not report it as a live pre-update survivor. Windows has no zombies (and status() is slow there).
