@@ -538,6 +538,22 @@ def test_scheduled_task_install_removes_startup_entries_that_would_double_launch
     assert "Removed redundant Windows login item" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("running_pids", [[], [123]])
+def test_scheduled_task_install_start_now_uses_supervision(monkeypatch, tmp_path, running_pids):
+    _startup_with_fallback_and_legacy_entries(monkeypatch, tmp_path)
+    monkeypatch.setattr(gateway_windows, "_is_running_as_admin", lambda: True)
+    monkeypatch.setattr(gateway_windows, "_install_scheduled_task", lambda name, path: (True, "created"))
+    monkeypatch.setattr(gateway_windows, "_gateway_pids", lambda: running_pids)
+    monkeypatch.setattr(gateway_windows, "_report_gateway_start", lambda via: None)
+    monkeypatch.setattr(gateway_windows, "_spawn_detached", lambda: pytest.fail("started without supervision"))
+    task_calls = []
+    monkeypatch.setattr(gateway_windows, "_exec_schtasks", lambda args: task_calls.append(args) or (0, "", ""))
+
+    gateway_windows.install(start_now=True, start_on_login=True)
+
+    assert task_calls == ([] if running_pids else [["/Run", "/TN", "Hermes_Gateway_alice"]])
+
+
 def test_reconcile_leaves_one_autostart_mechanism(monkeypatch, tmp_path):
     """#80569: what `hermes update` and `hermes doctor --fix` run. Beside a registered task every
     Startup entry is redundant; with no task a legacy .cmd next to the .vbs is. After reconcile

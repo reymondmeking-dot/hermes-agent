@@ -616,7 +616,6 @@ def _install_scheduled_task(task_name: str, script_path: Path) -> tuple[bool, st
     launcher_path = script_path.with_suffix(".vbs")   # the task launches the console-less .vbs
     xml_path = launcher_path.with_suffix(".task.xml")
     xml_path.write_text(_build_scheduled_task_xml(task_name, launcher_path, user), encoding="utf-16", newline="")
-    # Immediate manual starts use _spawn_detached(). See #45599.
     base = ["/Create", "/F", "/TN", task_name, "/XML", str(xml_path)]
     variants = [[*base, "/RU", user, "/NP", "/IT"], base] if user else [base]
     last_code, last_err = 1, ""
@@ -904,15 +903,21 @@ def _report_already_running(running_pids: list[int]) -> None:
     print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
 
 
-def _start_or_report_running(running_pids: list[int] | None = None) -> None:
-    """Spawn the gateway unless one is already running for this profile."""
+def _start_or_report_running(running_pids: list[int] | None = None, *, task_name: str | None = None) -> None:
+    """Start the gateway under the registered task when available, unless it is already running."""
     if running_pids is None:
         running_pids = _gateway_pids()
     if running_pids:
         _report_already_running(running_pids)
-    else:
-        _spawn_detached()
-        _report_gateway_start("direct spawn")
+        return
+    if task_name is not None:
+        code, _out, err = _exec_schtasks(["/Run", "/TN", task_name])
+        if code == 0:
+            _report_gateway_start("scheduled task")
+            return
+        print(f"⚠ schtasks /Run returned code {code}: {err.strip()} (falling back to a direct spawn)")
+    _spawn_detached()
+    _report_gateway_start("direct spawn")
 
 
 def _install_startup_fallback(script_path: Path, start_now: bool, detail: str) -> None:
@@ -1018,7 +1023,7 @@ def install(
         for message in warnings:
             print(f"⚠ {message}")
         if start_now:
-            _start_or_report_running()
+            _start_or_report_running(task_name=task_name)
         else:
             print("ℹ Gateway not started now.")
             print("  Start manually with: hermes gateway start")
@@ -1723,7 +1728,7 @@ def status(deep: bool = False) -> None:
 
 
 def start() -> None:
-    """Start the gateway using the canonical detached Windows launch path."""
+    """Start the gateway through its registered task or as a detached process."""
     _assert_windows()
     _print_start_attestation_warning()   # once: the LAST start's ✓ turned out to be false
     running_pids = _gateway_pids()
@@ -1731,7 +1736,8 @@ def start() -> None:
         _report_already_running(running_pids)
         return
 
-    if not is_task_registered() and not is_startup_entry_installed():
+    task_name = get_task_name() if is_task_registered() else None
+    if task_name is None and not is_startup_entry_installed():
         # Login persistence is a lasting system change: a bare ``start`` installs it only on an explicit
         # answer — the HERMES_GATEWAY_INSTALL_START_ON_LOGIN override or a real TTY prompt — never on a
         # non-TTY default (#113977). Declining still starts the gateway; the command is ``start``.
@@ -1752,18 +1758,9 @@ def start() -> None:
             install(force=False, start_now=True, start_on_login=True)
             return
         print("ℹ Login auto-start not installed; add it later with: hermes gateway install")
-    elif is_task_registered():
-        reconcile_scheduled_task(get_task_name())   # like systemd's regenerate-on-stale before a start
-        # Through the task so its launcher supervises this gateway; a direct spawn would have no owner.
-        code, _out, err = _exec_schtasks(["/Run", "/TN", get_task_name()])
-        if code == 0:
-            _report_gateway_start("scheduled task")
-            return
-        print(f"⚠ schtasks /Run returned code {code}: {err.strip()} (falling back to a direct spawn)")
-
-    # With no task (or a refused /Run): the same console-less direct spawn as install --start-now.
-    _spawn_detached()
-    _report_gateway_start("direct spawn")
+    elif task_name is not None:
+        reconcile_scheduled_task(task_name)
+    _start_or_report_running(task_name=task_name)
 
 
 def end_launchers(homes: Iterable[str | Path] | None = None) -> int:
