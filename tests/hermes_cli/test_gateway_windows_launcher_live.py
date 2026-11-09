@@ -9,6 +9,7 @@ import pytest
 
 from gateway.restart import GATEWAY_FATAL_CONFIG_EXIT_CODE, GATEWAY_SERVICE_RESTART_EXIT_CODE
 from hermes_cli import gateway_windows
+from tests.waiting import wait_until
 
 
 @pytest.mark.platforms("windows")
@@ -60,6 +61,9 @@ def test_hidden_gateway_launcher_restarts_only_recoverable_exit(tmp_path, monkey
 
     assert result.returncode == 0, result.stderr
     attempts = work_dir / "attempts.txt"
-    assert attempts.exists(), "Windows Script Host did not start the gateway stub"
+    observed = wait_until(
+        lambda: attempts.exists() and attempts.read_text(encoding="ascii").splitlines(),
+        what="the gateway stub to record its exit code",
+    )
     expected = [str(first_exit)] + ["0"] * (expected_attempts - 1)
-    assert attempts.read_text(encoding="ascii").splitlines() == expected
+    assert observed == expected
